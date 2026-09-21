@@ -1,0 +1,65 @@
+:root {
+  --ink: #1b1f24;
+  --muted: #5c6773;
+  --paper: #f6f3ee;
+  --card: #fffdf8;
+  --line: #d9d1c3;
+  --fail: #8b1e1e;
+  --fail-bg: #f8e4e1;
+  --pass: #1b5a3a;
+  --pass-bg: #e3f2e9;
+  --rev: #8a5a00;
+  --rev-bg: #f8efd6;
+  --na: #5c6773;
+  --na-bg: #ececec;
+  --accent: #163a5f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.45 "Source Serif 4", Georgia, serif; }
+header, main, footer { max-width: 1080px; margin: 0 auto; padding: 1.25rem 1.25rem; }
+header h1 { margin: 0 0 0.25rem; font-size: 1.75rem; letter-spacing: -0.02em; }
+.banner {
+  background: #163a5f;
+  color: #f6f3ee;
+  padding: 0.7rem 1.25rem;
+  font-size: 0.92rem;
+}
+.banner strong { color: #ffd36b; }
+form {
+  background: var(--card);
+  border: 1px solid var(--line);
+  padding: 1rem;
+  display: grid;
+  gap: 0.6rem;
+}
+label { font-size: 0.9rem; color: var(--muted); }
+input[type=url], textarea, select {
+  width: 100%; padding: 0.5rem 0.6rem; font: 15px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--line); background: #fff;
+}
+textarea { min-height: 120px; }
+.row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+button {
+  background: var(--accent); color: white; border: 0; padding: 0.55rem 1rem;
+  font: 600 15px/1.2 "Source Sans 3", system-ui, sans-serif; cursor: pointer;
+}
+button:disabled { opacity: 0.5; cursor: wait; }
+.status {
+  padding: 0.85rem 1rem; border: 1px solid var(--line); background: var(--card); margin: 1rem 0;
+}
+.status.fail { border-color: var(--fail); background: var(--fail-bg); }
+.status.incomplete { border-color: var(--rev); background: var(--rev-bg); }
+.status.ok { border-color: var(--pass); background: var(--pass-bg); }
+table { width: 100%; border-collapse: collapse; background: var(--card); font-size: 0.92rem; }
+th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 12px/1.2 "Source Sans 3", system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.pill { display: inline-block; padding: 0.05rem 0.4rem; font: 600 11px/1.4 ui-sans-serif, system-ui; text-transform: uppercase; }
+.pill.fail { background: var(--fail-bg); color: var(--fail); }
+.pill.pass { background: var(--pass-bg); color: var(--pass); }
+.pill.needs_review { background: var(--rev-bg); color: var(--rev); }
+.pill.na { background: var(--na-bg); color: var(--na); }
+.snip { color: var(--muted); font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.meta { color: var(--muted); font-size: 0.9rem; }
+details { margin-top: 0.25rem; }
+footer { color: var(--muted); font-size: 0.85rem; }
+.err { color: var(--fail); }

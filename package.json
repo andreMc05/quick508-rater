@@ -1,0 +1,24 @@
+{
+  "name": "quick508-rater",
+  "version": "0.1.0",
+  "private": true,
+  "description": "508 Draft Rater — Revised Section 508 E205 pre-audit rater. Not a conformance engine.",
+  "type": "module",
+  "bin": {
+    "quick508": "./src/cli.ts"
+  },
+  "scripts": {
+    "rate": "tsx src/cli.ts",
+    "serve": "tsx src/server.ts",
+    "start": "tsx src/server.ts",
+    "demo": "tsx src/cli.ts fixtures/fail-sample.html"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "express": "^4.21.2",
+    "tsx": "^4.19.2"
+  }
+}

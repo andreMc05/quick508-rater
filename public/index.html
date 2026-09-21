@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>508 Draft Rater — pre-audit only</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="banner">
+    <strong>Not a certification engine.</strong>
+    Do not treat output as “508 compliant,” “508 certified,” or a signed ACR/VPAT.
+    A human signs legal documents. One failed applicable WCAG 2.0 SC fails official conformance.
+  </div>
+  <header>
+    <h1>508 Draft Rater</h1>
+    <p class="meta">Revised Section 508 E205 electronic content → WCAG 2.0 Level A and AA. TypeSafe Jev is used only for semantic judgments. Code combines tool results and Nouls.</p>
+  </header>
+  <main>
+    <form id="form">
+      <label for="url">Public URL</label>
+      <input id="url" name="url" type="url" placeholder="https://example.gov/page" />
+      <label for="html">or paste HTML</label>
+      <textarea id="html" name="html" placeholder="&lt;!DOCTYPE html&gt;…"></textarea>
+      <div class="row">
+        <label>Content kind
+          <select id="kind" name="kind">
+            <option value="web">Web content (E205) — v1 default</option>
+            <option value="non_web_document">Non-web document (exceptions apply)</option>
+            <option value="non_web_software">Non-web software (exceptions apply)</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="skipJev" /> Skip Jev</label>
+        <label><input type="checkbox" id="skipAxe" /> Skip axe-core</label>
+        <button type="submit" id="go">Rate page</button>
+      </div>
+    </form>
+    <p id="err" class="err" hidden></p>
+    <section id="out" hidden></section>
+  </main>
+  <footer>
+    Pack: 36 CFR Part 1194 E205.4. FPC (Chapter 3 / 302.x) appear as impact tags only.
+    Optional WCAG 2.2 is a separate pack and is not mixed in.
+  </footer>
+  <script src="/app.js"></script>
+</body>
+</html>
