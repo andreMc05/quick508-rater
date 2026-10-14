@@ -18,10 +18,18 @@
   </header>
   <main>
     <form id="form">
-      <label for="url">Public URL</label>
-      <input id="url" name="url" type="url" placeholder="https://example.gov/page" />
-      <label for="html">or paste HTML</label>
-      <textarea id="html" name="html" placeholder="&lt;!DOCTYPE html&gt;…"></textarea>
+      <div class="source-toggle" role="group" aria-label="Input source">
+        <button type="button" class="chip is-on" id="mode-url" aria-pressed="true">URL</button>
+        <button type="button" class="chip" id="mode-html" aria-pressed="false">Text / document</button>
+      </div>
+      <div id="pane-url">
+        <label for="url">Public URL</label>
+        <input id="url" name="url" type="text" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://example.gov/page" />
+      </div>
+      <div id="pane-html" hidden>
+        <label for="html">Paste HTML</label>
+        <textarea id="html" name="html" placeholder="&lt;!DOCTYPE html&gt;…"></textarea>
+      </div>
       <div class="row">
         <label>Content kind
           <select id="kind" name="kind">
@@ -36,7 +44,32 @@
       </div>
     </form>
     <p id="err" class="err" hidden></p>
-    <section id="out" hidden></section>
+    <section id="out" hidden>
+      <div id="status"></div>
+      <p id="disclaimer" class="meta"></p>
+      <div class="workspace">
+        <div class="results">
+          <div class="filters">
+            <button type="button" class="chip is-on" data-filter="targets">Targets</button>
+            <button type="button" class="chip" data-filter="all">All SCs</button>
+          </div>
+          <div id="results"></div>
+        </div>
+        <aside class="review-pane">
+          <div id="review">
+            <h2>Review</h2>
+            <p class="meta">Select a row to jump to the snapshot, read the notes, and copy a selector.</p>
+          </div>
+          <div class="preview-wrap">
+            <div class="preview-bar">
+              <span>Page snapshot</span>
+              <span class="meta">Scripts off. This is the rated HTML, not a live browser.</span>
+            </div>
+            <iframe id="preview" sandbox="allow-same-origin" title="Rated page snapshot"></iframe>
+          </div>
+        </aside>
+      </div>
+    </section>
   </main>
   <footer>
     Pack: 36 CFR Part 1194 E205.4. FPC (Chapter 3 / 302.x) appear as impact tags only.

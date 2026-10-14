@@ -14,6 +14,7 @@ export interface RateOptions {
   kind?: ContentKind;
   skipAxe?: boolean;
   skipJev?: boolean;
+  includePreview?: boolean;
 }
 
 export async function ratePage(opts: RateOptions): Promise<DraftReport> {
@@ -36,6 +37,7 @@ export async function ratePage(opts: RateOptions): Promise<DraftReport> {
     axe,
     jevAnswers,
     referee,
+    includePreview: opts.includePreview,
   });
   report.inventorySummary = { ...report.inventorySummary, ...inventoryCounts(inv) };
   return report;

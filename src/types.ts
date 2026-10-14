@@ -25,6 +25,8 @@ export interface Evidence {
   source: Owner;
   snippet: string;
   selector?: string;
+  /** Stable snapshot id, as `[data-r508="img-0"]`. */
+  targetId?: string;
   ruleId?: string;
 }
 
@@ -50,6 +52,8 @@ export interface CriterionResult {
   jev?: JevTrace[];
   fpc: FpcKey[];
   notes: string;
+  /** Short next action for the review pane. Not a legal fix. */
+  remedy?: string;
   tools: Owner[];
 }
 
@@ -84,6 +88,8 @@ export interface DraftReport {
   inventorySummary: Record<string, number>;
   referee: { implementation: "typesafe" | "stub"; model?: string };
   limitations: string[];
+  /** Annotated HTML snapshot for in-app jump-to-target. Omitted from CLI JSON unless requested. */
+  previewHtml?: string;
 }
 
 export interface QuestionNoul {

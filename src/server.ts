@@ -19,12 +19,13 @@ app.get("/api/health", (_req, res) => {
 
 app.post("/api/rate", async (req, res) => {
   try {
-    const { url, html, kind, skipAxe, skipJev } = req.body as {
+    const { url, html, kind, skipAxe, skipJev, includePreview } = req.body as {
       url?: string;
       html?: string;
       kind?: ContentKind;
       skipAxe?: boolean;
       skipJev?: boolean;
+      includePreview?: boolean;
     };
     if (!url && !html) {
       res.status(400).json({ error: "Provide url or html" });
@@ -36,6 +37,7 @@ app.post("/api/rate", async (req, res) => {
       kind: kind || "web",
       skipAxe: Boolean(skipAxe),
       skipJev: Boolean(skipJev),
+      includePreview: includePreview !== false,
     });
     res.json(report);
   } catch (err) {

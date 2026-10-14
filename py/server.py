@@ -39,6 +39,7 @@ class Handler(SimpleHTTPRequestHandler):
                 as_html=bool(body.get("html")),
                 kind=body.get("kind") or "web",
                 skip_jev=bool(body.get("skipJev")),
+                include_preview=body.get("includePreview", True),
             )
             self._json(report)
         except Exception as exc:

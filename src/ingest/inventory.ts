@@ -4,6 +4,11 @@ import type { PageInventory } from "../types.ts";
 const MAX_ITEMS = 40;
 const NEAR = 180;
 
+function stamp($el: cheerio.Cheerio<any>, id: string): string {
+  $el.attr("data-r508", id);
+  return `[data-r508="${id}"]`;
+}
+
 export function buildInventory(html: string, url?: string): PageInventory {
   const $ = cheerio.load(html);
   const title = $("title").first().text().trim() || null;
@@ -16,7 +21,7 @@ export function buildInventory(html: string, url?: string): PageInventory {
       const $el = $(el);
       const parentLink = $el.closest("a");
       return {
-        selector: `img:nth-of-type(${i + 1})[src="${($el.attr("src") || "").slice(0, 80)}"]`,
+        selector: stamp($el, `img-${i}`),
         src: $el.attr("src") || "",
         alt: $el.attr("alt") ?? null,
         hasAltAttr: $el.attr("alt") !== undefined,
@@ -33,7 +38,7 @@ export function buildInventory(html: string, url?: string): PageInventory {
     .map((el, i) => {
       const $el = $(el);
       return {
-        selector: `svg:nth-of-type(${i + 1})`,
+        selector: stamp($el, `svg-${i}`),
         title: $el.find("title").first().text().trim() || null,
         ariaLabel: $el.attr("aria-label") || $el.attr("aria-labelledby") || null,
         ariaHidden: $el.attr("aria-hidden") === "true",
@@ -47,7 +52,7 @@ export function buildInventory(html: string, url?: string): PageInventory {
       const $el = $(el);
       const text = visibleText($el);
       return {
-        selector: `a[href]:nth-of-type(${i + 1})`,
+        selector: stamp($el, `a-${i}`),
         href: $el.attr("href") || "",
         text,
         ariaLabel: $el.attr("aria-label") || null,
@@ -62,7 +67,7 @@ export function buildInventory(html: string, url?: string): PageInventory {
       const $el = $(el);
       const tag = el.tagName.toLowerCase();
       return {
-        selector: `${tag}:nth-of-type(${i + 1})`,
+        selector: stamp($el, `h-${i}`),
         level: Number(tag.slice(1)),
         text: $el.text().replace(/\s+/g, " ").trim(),
       };
@@ -103,7 +108,7 @@ export function buildInventory(html: string, url?: string): PageInventory {
             $c.attr("aria-labelledby")
           );
           return {
-            selector: `form:nth-of-type(${fi + 1}) :input(${ci})`,
+            selector: stamp($c, `ctrl-${fi}-${ci}`),
             tag: c.tagName.toLowerCase(),
             type: $c.attr("type") || null,
             id,
@@ -114,36 +119,42 @@ export function buildInventory(html: string, url?: string): PageInventory {
             required: $c.attr("required") !== undefined || $c.attr("aria-required") === "true",
           };
         });
-      return { selector: `form:nth-of-type(${fi + 1})`, controls };
+      return { selector: stamp($form, `form-${fi}`), controls };
     });
 
   const media: PageInventory["media"] = [];
   $("audio").each((i, el) => {
-    media.push({ kind: "audio", selector: `audio:nth-of-type(${i + 1})`, attrs: attrs($(el)) });
+    media.push({ kind: "audio", selector: stamp($(el), `audio-${i}`), attrs: attrs($(el)) });
   });
   $("video").each((i, el) => {
-    media.push({ kind: "video", selector: `video:nth-of-type(${i + 1})`, attrs: attrs($(el)) });
+    media.push({ kind: "video", selector: stamp($(el), `video-${i}`), attrs: attrs($(el)) });
   });
   $("track").each((i, el) => {
-    media.push({ kind: "track", selector: `track:nth-of-type(${i + 1})`, attrs: attrs($(el)) });
+    media.push({ kind: "track", selector: stamp($(el), `track-${i}`), attrs: attrs($(el)) });
   });
 
   const langParts = $("[lang]")
     .toArray()
     .filter((el) => el.tagName.toLowerCase() !== "html")
     .slice(0, 20)
-    .map((el, i) => ({
-      selector: `${el.tagName.toLowerCase()}[lang]:nth-of-type(${i + 1})`,
-      lang: $(el).attr("lang") || "",
-      text: $(el).text().replace(/\s+/g, " ").trim().slice(0, 80),
-    }));
+    .map((el, i) => {
+      const $el = $(el);
+      return {
+        selector: stamp($el, `lang-${i}`),
+        lang: $el.attr("lang") || "",
+        text: $el.text().replace(/\s+/g, " ").trim().slice(0, 80),
+      };
+    });
 
   const iframeTitles = $("iframe")
     .toArray()
-    .map((el, i) => ({
-      selector: `iframe:nth-of-type(${i + 1})`,
-      title: $(el).attr("title") || $(el).attr("aria-label") || null,
-    }));
+    .map((el, i) => {
+      const $el = $(el);
+      return {
+        selector: stamp($el, `iframe-${i}`),
+        title: $el.attr("title") || $el.attr("aria-label") || null,
+      };
+    });
 
   const buttons = $("button, input[type=submit], input[type=button], [role=button]")
     .toArray()
@@ -151,7 +162,7 @@ export function buildInventory(html: string, url?: string): PageInventory {
     .map((el, i) => {
       const $el = $(el);
       return {
-        selector: `${el.tagName.toLowerCase()}:nth-of-type(${i + 1})`,
+        selector: stamp($el, `btn-${i}`),
         text: visibleText($el) || $el.attr("value") || "",
         ariaLabel: $el.attr("aria-label") || null,
         type: $el.attr("type") || null,
@@ -166,7 +177,7 @@ export function buildInventory(html: string, url?: string): PageInventory {
     const background = matchCss(style, "background-color") || matchCss(style, "background");
     if (color && background && !background.includes("url(")) {
       colorPairs.push({
-        selector: `${el.tagName.toLowerCase()}[style]:nth-of-type(${i + 1})`,
+        selector: stamp($(el), `style-${colorPairs.length}`),
         color,
         background,
         text: $(el).text().replace(/\s+/g, " ").trim().slice(0, 60),
@@ -176,7 +187,7 @@ export function buildInventory(html: string, url?: string): PageInventory {
 
   const bodyText = $("body").text() || "";
   return {
-    html,
+    html: $.html(),
     url,
     title,
     htmlLang,
@@ -193,7 +204,10 @@ export function buildInventory(html: string, url?: string): PageInventory {
     iframeTitles,
     buttons,
     timedHints: /setTimeout|setInterval|meta[^>]+http-equiv=["']refresh/i.test(html),
-    blinkMarquee: $("blink, marquee").length > 0 || /animation:\s*[^;]*blink/i.test(html),
+    blinkMarquee: $("blink, marquee").toArray().some((el, i) => {
+      stamp($(el), `move-${i}`);
+      return true;
+    }) || /animation:\s*[^;]*blink/i.test(html),
     autofocus: $("[autofocus]").length > 0,
     tabIndexPositive: $("[tabindex]").toArray().filter((el) => Number($(el).attr("tabindex")) > 0).length,
     accessKeys: $("[accesskey]").length,

@@ -51,6 +51,7 @@ export interface CombineInput {
   axe: AxeBySc;
   jevAnswers: Map<string, { type: string; noul?: number; choice?: string; probabilities?: Record<string, number>; confidence?: number; job: JevJob }>;
   referee: Referee;
+  includePreview?: boolean;
 }
 
 export function combine(input: CombineInput): DraftReport {
@@ -101,6 +102,7 @@ export function combine(input: CombineInput): DraftReport {
       evidence.push({
         source: "jev",
         selector: j.job.selector,
+        targetId: j.job.selector?.match(/^\[data-r508="([^"]+)"\]$/)?.[1],
         snippet: `Jev ${j.trace.primitive} ${j.trace.noul !== undefined ? j.trace.noul.toFixed(3) : j.trace.choice} — ${j.job.snippet}`.slice(0, 240),
       });
     }
@@ -108,6 +110,7 @@ export function combine(input: CombineInput): DraftReport {
     let result: Outcome = "needs_review";
     let owner: Owner = uniqueOwner(tools);
     let notes = finding?.notes || "";
+    let remedy = finding?.remedy;
 
     const codeFail = finding?.result === "fail";
     const axeFail = (axeHit?.violations.length || 0) > 0;
@@ -159,6 +162,13 @@ export function combine(input: CombineInput): DraftReport {
       }
     }
 
+    if (!remedy) {
+      if (result === "fail") remedy = "Fix the highlighted markup, then re-rate. This is not a certification step.";
+      else if (result === "needs_review") {
+        remedy = "Review the notes and the snapshot (or the live page). This SC is not closed from automated checks alone.";
+      }
+    }
+
     return base(def, {
       result,
       owner,
@@ -166,6 +176,7 @@ export function combine(input: CombineInput): DraftReport {
       evidence,
       jev: traces.length ? traces : undefined,
       notes,
+      remedy,
       tools: [...new Set(tools.length ? tools : [owner])],
     });
   });
@@ -226,6 +237,7 @@ export function combine(input: CombineInput): DraftReport {
       "Keyboard traps, focus order, live media, flashing, and transaction confirmation need a human.",
       "WCAG 2.2 is not part of this legal pack.",
     ],
+    ...(input.includePreview ? { previewHtml: inv.html } : {}),
   };
 }
 

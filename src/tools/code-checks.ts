@@ -8,6 +8,13 @@ export interface CodeFinding {
   owner: Owner;
   evidence: CriterionResult["evidence"];
   notes: string;
+  remedy?: string;
+}
+
+function targetOf(selector?: string): { selector?: string; targetId?: string } {
+  if (!selector) return {};
+  const m = selector.match(/^\[data-r508="([^"]+)"\]$/);
+  return { selector, targetId: m?.[1] };
 }
 
 export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<string, CodeFinding> {
@@ -32,10 +39,11 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
       owner: "code",
       evidence: missingAlt.slice(0, 5).map((i) => ({
         source: "code",
-        selector: i.selector,
         snippet: `<img src="${i.src.slice(0, 80)}" — missing alt attribute>`,
+        ...targetOf(i.selector),
       })),
       notes: "WCAG 2.0 1.1.1 requires a text alternative. Missing alt is a structural fail. Alt quality is a separate Jev pass when alt exists.",
+      remedy: "Add alt text that names the image’s purpose, or alt=\"\" if it is decorative.",
     });
   }
 
@@ -58,8 +66,9 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
       put("1.2.2", {
         result: "needs_review",
         owner: "human",
-        evidence: video.slice(0, 3).map((v) => ({ source: "code", selector: v.selector, snippet: "<video> without a captions <track> in markup." })),
+        evidence: video.slice(0, 3).map((v) => ({ source: "code", snippet: "<video> without a captions <track> in markup.", ...targetOf(v.selector) })),
         notes: "No captions track in markup. Captions may be provided by a player UI — human must confirm. Do not treat absence of <track> as automatic fail for all players.",
+        remedy: "Confirm captions in the player, or add a captions <track>. Do not treat missing <track> as a fail if the player supplies captions.",
       });
     }
     put("1.2.4", {
@@ -94,8 +103,9 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
     put("1.4.2", {
       result: "needs_review",
       owner: "human",
-      evidence: autoAudio.map((m) => ({ source: "code", selector: m.selector, snippet: "<audio autoplay> present." })),
+      evidence: autoAudio.map((m) => ({ source: "code", snippet: "<audio autoplay> present.", ...targetOf(m.selector) })),
       notes: "Autoplay present. Duration and a pause control must be confirmed in a browser.",
+      remedy: "In a browser, confirm duration and that a pause or volume control exists.",
     });
   } else if (!audio.length) {
     put("1.4.2", {
@@ -116,10 +126,11 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
       owner: "code",
       evidence: contrastFails.slice(0, 5).map((p) => ({
         source: "code",
-        selector: p.selector,
         snippet: `contrast ${p.ratio!.toFixed(2)}:1 color ${p.color} on ${p.background} — “${p.text}”`,
+        ...targetOf(p.selector),
       })),
       notes: "Only inline color + background-color pairs. Computed CSS and images are out of scope for this code check.",
+      remedy: "Raise the inline foreground/background pair to at least 4.5:1 (3:1 if large text).",
     });
   } else if (inv.colorPairs.length === 0) {
     put("1.4.3", {
@@ -149,6 +160,7 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
       owner: "code",
       evidence: [{ source: "code", snippet: "No skip link matching skip/main/content and no main/nav/header landmark." }],
       notes: "Single-page sites with no repeated blocks may still argue N/A; this rater treats missing mechanism as fail for typical federal pages.",
+      remedy: "Add a skip link to main content and/or a main (or nav/header) landmark.",
     });
   }
 
@@ -159,6 +171,7 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
       owner: "code",
       evidence: [{ source: "code", snippet: "No <title> text." }],
       notes: "Missing title is a structural fail. Descriptive quality is a Jev question when title exists.",
+      remedy: "Add a <title> that names the page’s topic or purpose.",
     });
   } else if (/^(untitled|new page|document|page)$/i.test(inv.title)) {
     put("2.4.2", {
@@ -166,6 +179,7 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
       owner: "code",
       evidence: [{ source: "code", snippet: `Non-descriptive title: “${inv.title}”` }],
       notes: "Placeholder titles fail 2.4.2 on their face.",
+      remedy: "Replace the placeholder with a title that names the page’s topic or purpose.",
     });
   }
 
@@ -176,6 +190,7 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
       owner: "code",
       evidence: [{ source: "code", snippet: "<html> has no lang (or xml:lang) attribute." }],
       notes: "Language of page is not programmatically determinable.",
+      remedy: "Set <html lang=\"…\"> to a well-formed language tag (for example lang=\"en\").",
     });
   } else if (!/^[a-z]{2,3}(-[A-Za-z0-9]+)*$/.test(inv.htmlLang)) {
     put("3.1.1", {
@@ -183,6 +198,7 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
       owner: "code",
       evidence: [{ source: "code", snippet: `lang="${inv.htmlLang}" is not a well-formed primary language subtag.` }],
       notes: "Invalid language tag.",
+      remedy: "Use a well-formed BCP 47 tag such as en or en-US.",
     });
   } else {
     put("3.1.1", {
@@ -208,10 +224,11 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
       owner: "code",
       evidence: unlabeled.slice(0, 5).map((c) => ({
         source: "code",
-        selector: c.selector,
         snippet: `${c.tag}${c.type ? `[type=${c.type}]` : ""} name=${c.name || "?"} has no label / aria-label / aria-labelledby.`,
+        ...targetOf(c.selector),
       })),
       notes: "Missing accessible name for required input is a 3.3.2 / 4.1.2 structural issue.",
+      remedy: "Associate a <label for>, wrap the control in <label>, or add aria-label / aria-labelledby.",
     });
   } else {
     put("3.3.2", {
@@ -230,10 +247,11 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
       result: "fail",
       owner: "code",
       evidence: [
-        ...unnamedIframes.slice(0, 3).map((f) => ({ source: "code" as const, selector: f.selector, snippet: "iframe without title or aria-label" })),
-        ...unnamedButtons.slice(0, 3).map((b) => ({ source: "code" as const, selector: b.selector, snippet: "button/control with empty accessible name" })),
+        ...unnamedIframes.slice(0, 3).map((f) => ({ source: "code" as const, snippet: "iframe without title or aria-label", ...targetOf(f.selector) })),
+        ...unnamedButtons.slice(0, 3).map((b) => ({ source: "code" as const, snippet: "button/control with empty accessible name", ...targetOf(b.selector) })),
       ],
       notes: "Name missing on custom or embedded controls.",
+      remedy: "Give each iframe a title (or aria-label) and each button an accessible name.",
     });
   }
 
@@ -242,8 +260,9 @@ export function runCodeChecks(inv: PageInventory, defs: CriterionDef[]): Record<
     put("2.2.2", {
       result: "fail",
       owner: "code",
-      evidence: [{ source: "code", snippet: "<blink>, <marquee>, or blink animation detected." }],
+      evidence: [{ source: "code", snippet: "<blink>, <marquee>, or blink animation detected.", ...targetOf("[data-r508=\"move-0\"]") }],
       notes: "Moving content without a pause control in markup.",
+      remedy: "Remove blink/marquee, or provide a pause control for moving content.",
     });
   }
 

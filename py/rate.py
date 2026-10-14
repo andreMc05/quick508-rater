@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -86,6 +87,130 @@ SUCCESS_PASS, SUCCESS_FAIL = 0.78, 0.28
 FAIL_PROP_ABOVE, FAIL_PROP_BELOW = 0.72, 0.28
 
 
+def _sel(target_id: str | None) -> str | None:
+    return f'[data-r508="{target_id}"]' if target_id else None
+
+
+class _Annotator(HTMLParser):
+    """Rewrite opening tags with stable data-r508 ids for jump-to-target."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.parts: list[str] = []
+        self.n = {"img": 0, "svg": 0, "a": 0, "h": 0, "form": 0, "ctrl": 0, "audio": 0, "video": 0, "track": 0, "iframe": 0, "btn": 0, "style": 0, "lang": 0, "move": 0}
+
+    def handle_decl(self, decl: str) -> None:
+        self.parts.append(f"<!{decl}>")
+
+    def handle_comment(self, data: str) -> None:
+        self.parts.append(f"<!--{data}-->")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        self.parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self.parts.append(f"&#{name};")
+
+    def handle_endtag(self, tag: str) -> None:
+        self.parts.append(f"</{tag}>")
+
+    def handle_pi(self, data: str) -> None:
+        self.parts.append(f"<?{data}>")
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.parts.append(self._start(tag, attrs, False))
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.parts.append(self._start(tag, attrs, True))
+
+    def _start(self, tag: str, attrs: list[tuple[str, str | None]], self_close: bool) -> str:
+        a = {k: (v or "") for k, v in attrs}
+        rid = self._id_for(tag, a)
+        pairs = [(k, v) for k, v in attrs if k != "data-r508"]
+        if rid:
+            pairs.append(("data-r508", rid))
+        inner = "".join(
+            f' {k}' if v is None else f' {k}="{v.replace(chr(34), "&quot;")}"' for k, v in pairs
+        )
+        close = " />" if self_close else ">"
+        return f"<{tag}{inner}{close}"
+
+    def _id_for(self, tag: str, a: dict[str, str]) -> str | None:
+        if tag == "img" and self.n["img"] < 40:
+            rid = f"img-{self.n['img']}"
+            self.n["img"] += 1
+            return rid
+        if tag == "svg" and self.n["svg"] < 40:
+            rid = f"svg-{self.n['svg']}"
+            self.n["svg"] += 1
+            return rid
+        if tag == "a" and a.get("href") and self.n["a"] < 40:
+            rid = f"a-{self.n['a']}"
+            self.n["a"] += 1
+            return rid
+        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"} and self.n["h"] < 40:
+            rid = f"h-{self.n['h']}"
+            self.n["h"] += 1
+            return rid
+        if tag == "form" and self.n["form"] < 15:
+            rid = f"form-{self.n['form']}"
+            self.n["form"] += 1
+            return rid
+        if tag in {"input", "select", "textarea"}:
+            typ = (a.get("type") or "text").lower()
+            if typ not in {"hidden", "submit", "button", "image", "reset"}:
+                rid = f"ctrl-0-{self.n['ctrl']}"
+                self.n["ctrl"] += 1
+                return rid
+            if typ in {"submit", "button"} and self.n["btn"] < 40:
+                rid = f"btn-{self.n['btn']}"
+                self.n["btn"] += 1
+                return rid
+        if tag == "button" and self.n["btn"] < 40:
+            rid = f"btn-{self.n['btn']}"
+            self.n["btn"] += 1
+            return rid
+        if tag in {"blink", "marquee"}:
+            rid = f"move-{self.n['move']}"
+            self.n["move"] += 1
+            return rid
+        if tag == "iframe":
+            rid = f"iframe-{self.n['iframe']}"
+            self.n["iframe"] += 1
+            return rid
+        if tag in {"audio", "video", "track"}:
+            rid = f"{tag}-{self.n[tag]}"
+            self.n[tag] += 1
+            return rid
+        style = a.get("style", "")
+        if "color:" in style and "background" in style and self.n["style"] < 25:
+            rid = f"style-{self.n['style']}"
+            self.n["style"] += 1
+            return rid
+        if tag != "html" and a.get("lang") and self.n["lang"] < 20:
+            rid = f"lang-{self.n['lang']}"
+            self.n["lang"] += 1
+            return rid
+        if a.get("role") == "button" and self.n["btn"] < 40:
+            rid = f"btn-{self.n['btn']}"
+            self.n["btn"] += 1
+            return rid
+        return None
+
+
+def annotate_html(html: str) -> str:
+    p = _Annotator()
+    try:
+        p.feed(html)
+        p.close()
+    except Exception:
+        return html
+    return "".join(p.parts)
+
+
 @dataclass
 class Inventory:
     html: str
@@ -140,18 +265,31 @@ class PageParser(HTMLParser):
                 "has_alt": "alt" in a,
                 "aria_hidden": a.get("aria-hidden") == "true",
                 "in_link": "a" in self._stack,
+                "selector": _sel(a.get("data-r508")),
+                "target_id": a.get("data-r508"),
             })
         if tag == "a":
-            self._open_link = {"href": a.get("href", ""), "aria": a.get("aria-label"), "text": ""}
+            self._open_link = {
+                "href": a.get("href", ""),
+                "aria": a.get("aria-label"),
+                "text": "",
+                "selector": _sel(a.get("data-r508")),
+                "target_id": a.get("data-r508"),
+            }
             self._capture = "a"
             self._buf = []
         if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             self._capture = tag
             self._buf = []
+            self._cur_attrs = a
         if tag in {"audio", "video", "track"}:
             self.inv.media.append(tag)
         if tag == "iframe":
-            self.inv.iframes.append({"title": a.get("title") or a.get("aria-label") or None})
+            self.inv.iframes.append({
+                "title": a.get("title") or a.get("aria-label") or None,
+                "selector": _sel(a.get("data-r508")),
+                "target_id": a.get("data-r508"),
+            })
         if tag == "button":
             self._capture = "button"
             self._buf = []
@@ -166,9 +304,16 @@ class PageParser(HTMLParser):
                     "aria": a.get("aria-label") or a.get("aria-labelledby"),
                     "title": a.get("title"),
                     "has_label": False,
+                    "selector": _sel(a.get("data-r508")),
+                    "target_id": a.get("data-r508"),
                 })
             if typ in {"submit", "button"}:
-                self.inv.buttons.append({"text": a.get("value") or "", "aria": a.get("aria-label")})
+                self.inv.buttons.append({
+                    "text": a.get("value") or "",
+                    "aria": a.get("aria-label"),
+                    "selector": _sel(a.get("data-r508")),
+                    "target_id": a.get("data-r508"),
+                })
         if tag == "label":
             self._in_label = True
             self._label_for = a.get("for")
@@ -176,7 +321,11 @@ class PageParser(HTMLParser):
             self.inv.blink = True
         style = a.get("style", "")
         if "color:" in style and "background" in style:
-            self.inv.color_pairs.append({"style": style})
+            self.inv.color_pairs.append({
+                "style": style,
+                "selector": _sel(a.get("data-r508")),
+                "target_id": a.get("data-r508"),
+            })
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "title" and self._capture == "title":
@@ -193,12 +342,19 @@ class PageParser(HTMLParser):
             self._open_link = None
             self._capture = None
         if tag in {"h1", "h2", "h3", "h4", "h5", "h6"} and self._capture == tag:
-            self.inv.headings.append({"level": int(tag[1]), "text": "".join(self._buf).strip()})
+            self.inv.headings.append({
+                "level": int(tag[1]),
+                "text": "".join(self._buf).strip(),
+                "selector": _sel(self._cur_attrs.get("data-r508")),
+                "target_id": self._cur_attrs.get("data-r508"),
+            })
             self._capture = None
         if tag == "button" and self._capture == "button":
             self.inv.buttons.append({
                 "text": "".join(self._buf).strip(),
                 "aria": self._cur_attrs.get("aria-label"),
+                "selector": _sel(self._cur_attrs.get("data-r508")),
+                "target_id": self._cur_attrs.get("data-r508"),
             })
             self._capture = None
         if tag == "label":
@@ -215,13 +371,14 @@ class PageParser(HTMLParser):
 
 
 def parse_html(html: str, url: str | None) -> Inventory:
+    annotated = annotate_html(html)
     p = PageParser()
     try:
-        p.feed(html)
+        p.feed(annotated)
         p.close()
     except Exception:
         pass
-    p.inv.html = html
+    p.inv.html = annotated
     p.inv.url = url
     p.inv.timed = bool(re.search(r"setTimeout|setInterval|http-equiv=[\"']refresh", html, re.I))
     ids_with_labels = set(re.findall(r'<label[^>]+for=["\']([^"\']+)', html, re.I))
@@ -370,6 +527,7 @@ def build_jobs(inv: Inventory) -> list[dict]:
             "criterionId": "1.1.1",
             "questionId": f"alt_{i}",
             "snippet": alt,
+            "selector": img.get("selector"),
             "polarity": "success",
             "state": {"alt_text": alt, "src": img["src"][:120], "in_link": img["in_link"]},
             "question": {
@@ -392,6 +550,7 @@ def build_jobs(inv: Inventory) -> list[dict]:
             "criterionId": "2.4.4",
             "questionId": f"link_{i}",
             "snippet": name,
+            "selector": link.get("selector"),
             "polarity": "success",
             "state": {"link_text": name, "href": link.get("href", "")[:160]},
             "question": {
@@ -407,6 +566,7 @@ def build_jobs(inv: Inventory) -> list[dict]:
             "criterionId": "2.4.6",
             "questionId": f"h_{i}",
             "snippet": h["text"],
+            "selector": h.get("selector"),
             "polarity": "success",
             "state": {"heading_level": h["level"], "heading_text": h["text"]},
             "question": {
@@ -460,12 +620,13 @@ def build_jobs(inv: Inventory) -> list[dict]:
 def code_findings(inv: Inventory) -> dict[str, dict]:
     out: dict[str, dict] = {}
 
-    def put(cid: str, result: str, owner: str, snippet: str, notes: str) -> None:
+    def put(cid: str, result: str, owner: str, snippet: str, notes: str, *, remedy: str | None = None, evidence: list | None = None) -> None:
         out[cid] = {
             "result": result,
             "owner": owner,
-            "evidence": [{"source": owner if owner != "mixed" else "code", "snippet": snippet}],
+            "evidence": evidence or [{"source": owner if owner != "mixed" else "code", "snippet": snippet}],
             "notes": notes,
+            "remedy": remedy,
         }
 
     missing = [i for i in inv.images if not i["has_alt"] and not i["aria_hidden"]]
@@ -473,7 +634,23 @@ def code_findings(inv: Inventory) -> dict[str, dict]:
         put("1.1.1", "na", "code", "No img/audio/video detected.", "CSS backgrounds untested.")
     elif missing:
         src = missing[0]["src"][:80]
-        put("1.1.1", "fail", "code", f"<img src=\"{src}\"> missing alt attribute", "Structural fail. Alt quality is a Jev pass when alt exists.")
+        put(
+            "1.1.1",
+            "fail",
+            "code",
+            f"<img src=\"{src}\"> missing alt attribute",
+            "Structural fail. Alt quality is a Jev pass when alt exists.",
+            remedy="Add alt text that names the image’s purpose, or alt=\"\" if it is decorative.",
+            evidence=[
+                {
+                    "source": "code",
+                    "snippet": f"<img src=\"{img['src'][:80]}\"> missing alt attribute",
+                    "selector": img.get("selector"),
+                    "targetId": img.get("target_id"),
+                }
+                for img in missing[:5]
+            ],
+        )
 
     if not inv.media:
         for cid in ("1.2.1", "1.2.2", "1.2.3", "1.2.4", "1.2.5", "1.4.2"):
@@ -483,14 +660,14 @@ def code_findings(inv: Inventory) -> dict[str, dict]:
             put(cid, "needs_review", "human", "Media present; captions/AD not proven from markup.", "Human checks the resource.")
 
     if inv.title is None:
-        put("2.4.2", "fail", "code", "No <title> text.", "Missing title is a structural fail.")
+        put("2.4.2", "fail", "code", "No <title> text.", "Missing title is a structural fail.", remedy="Add a <title> that names the page’s topic or purpose.")
     elif re.match(r"^(untitled|new page|document|page)$", inv.title, re.I):
-        put("2.4.2", "fail", "code", f"Non-descriptive title: “{inv.title}”", "Placeholder titles fail 2.4.2 on their face.")
+        put("2.4.2", "fail", "code", f"Non-descriptive title: “{inv.title}”", "Placeholder titles fail 2.4.2 on their face.", remedy="Replace the placeholder with a title that names the page’s topic or purpose.")
 
     if not inv.lang:
-        put("3.1.1", "fail", "code", "<html> has no lang attribute.", "Language not programmatically determinable.")
+        put("3.1.1", "fail", "code", "<html> has no lang attribute.", "Language not programmatically determinable.", remedy="Set <html lang=\"…\"> to a well-formed language tag (for example lang=\"en\").")
     elif not re.match(r"^[a-z]{2,3}(-[A-Za-z0-9]+)*$", inv.lang):
-        put("3.1.1", "fail", "code", f'lang="{inv.lang}" is not well-formed.', "Invalid language tag.")
+        put("3.1.1", "fail", "code", f'lang="{inv.lang}" is not well-formed.', "Invalid language tag.", remedy="Use a well-formed BCP 47 tag such as en or en-US.")
     else:
         put("3.1.1", "pass", "code", f'<html lang="{inv.lang}">', "Well-formed lang present.")
 
@@ -501,7 +678,23 @@ def code_findings(inv: Inventory) -> dict[str, dict]:
         put("3.3.3", "na", "code", "No forms.", "")
     else:
         if unlabeled:
-            put("3.3.2", "fail", "code", f"{len(unlabeled)} control(s) without label / ARIA name.", "Structural.")
+            put(
+                "3.3.2",
+                "fail",
+                "code",
+                f"{len(unlabeled)} control(s) without label / ARIA name.",
+                "Structural.",
+                remedy="Associate a <label for>, wrap the control in <label>, or add aria-label / aria-labelledby.",
+                evidence=[
+                    {
+                        "source": "code",
+                        "snippet": f"{c.get('type') or 'input'} name={c.get('name') or '?'} has no label / ARIA name.",
+                        "selector": c.get("selector"),
+                        "targetId": c.get("target_id"),
+                    }
+                    for c in unlabeled[:5]
+                ],
+            )
         else:
             put("3.3.2", "pass", "code", "Inventoried controls have a name.", "Quality still Jev/human.")
         put("3.3.1", "needs_review", "human", "Error identification requires submitting invalid data.", "Runtime.")
@@ -510,17 +703,40 @@ def code_findings(inv: Inventory) -> dict[str, dict]:
     if inv.skip or any(l in {"main", "navigation", "nav", "banner"} for l in inv.landmarks):
         put("2.4.1", "pass", "code", f"skip={len(inv.skip)} landmarks={inv.landmarks}", "Structural bypass present.")
     else:
-        put("2.4.1", "fail", "code", "No skip link and no main/nav landmark.", "Typical federal pages need a bypass.")
+        put("2.4.1", "fail", "code", "No skip link and no main/nav landmark.", "Typical federal pages need a bypass.", remedy="Add a skip link to main content and/or a main (or nav/header) landmark.")
 
     if inv.blink:
-        put("2.2.2", "fail", "code", "<blink> or <marquee> present.", "Moving content without pause control.")
+        put(
+            "2.2.2",
+            "fail",
+            "code",
+            "<blink> or <marquee> present.",
+            "Moving content without pause control.",
+            remedy="Remove blink/marquee, or provide a pause control for moving content.",
+            evidence=[{"source": "code", "snippet": "<blink> or <marquee> present.", "selector": '[data-r508="move-0"]', "targetId": "move-0"}],
+        )
     else:
         put("2.2.2", "na", "code", "No blink/marquee in markup.", "CSS/script motion untested.")
 
     unnamed_iframes = [f for f in inv.iframes if not f.get("title")]
     unnamed_btns = [b for b in inv.buttons if not (b.get("text") or b.get("aria"))]
     if unnamed_iframes or unnamed_btns:
-        put("4.1.2", "fail", "code", f"unnamed iframes={len(unnamed_iframes)} unnamed buttons={len(unnamed_btns)}", "Name, Role, Value.")
+        ev = [
+            {"source": "code", "snippet": "iframe without title or aria-label", "selector": f.get("selector"), "targetId": f.get("target_id")}
+            for f in unnamed_iframes[:3]
+        ] + [
+            {"source": "code", "snippet": "button/control with empty accessible name", "selector": b.get("selector"), "targetId": b.get("target_id")}
+            for b in unnamed_btns[:3]
+        ]
+        put(
+            "4.1.2",
+            "fail",
+            "code",
+            f"unnamed iframes={len(unnamed_iframes)} unnamed buttons={len(unnamed_btns)}",
+            "Name, Role, Value.",
+            remedy="Give each iframe a title (or aria-label) and each button an accessible name.",
+            evidence=ev,
+        )
 
     for pair in inv.color_pairs:
         style = pair["style"]
@@ -529,7 +745,20 @@ def code_findings(inv: Inventory) -> dict[str, dict]:
         if cm and bm:
             ratio = contrast_ratio(cm.group(1), bm.group(1))
             if ratio is not None and ratio < 4.5:
-                put("1.4.3", "fail", "code", f"inline contrast {ratio:.2f}:1", "Inline styles only.")
+                put(
+                    "1.4.3",
+                    "fail",
+                    "code",
+                    f"inline contrast {ratio:.2f}:1",
+                    "Inline styles only.",
+                    remedy="Raise the inline foreground/background pair to at least 4.5:1 (3:1 if large text).",
+                    evidence=[{
+                        "source": "code",
+                        "snippet": f"inline contrast {ratio:.2f}:1",
+                        "selector": pair.get("selector"),
+                        "targetId": pair.get("target_id"),
+                    }],
+                )
                 break
     if "1.4.3" not in out:
         put("1.4.3", "needs_review", "human", "Computed stylesheet contrast not measured in the stdlib runner.", "Use axe in a browser for fuller coverage.")
@@ -559,7 +788,7 @@ def code_findings(inv: Inventory) -> dict[str, dict]:
     return out
 
 
-def combine(inv: Inventory, kind: str, source: dict, referee: Referee, jev_rows: list[dict]) -> dict:
+def combine(inv: Inventory, kind: str, source: dict, referee: Referee, jev_rows: list[dict], include_preview: bool = False) -> dict:
     findings = code_findings(inv)
     jev_by: dict[str, list[dict]] = {}
     for row in jev_rows:
@@ -585,10 +814,16 @@ def combine(inv: Inventory, kind: str, source: dict, referee: Referee, jev_rows:
                 "noul": noul,
                 "proposition": row["question"]["instructions"],
             })
-            evidence.append({"source": "jev", "snippet": f"Jev noul={noul:.3f} — {row['snippet'][:180]}"})
+            evidence.append({
+                "source": "jev",
+                "snippet": f"Jev noul={noul:.3f} — {row['snippet'][:180]}",
+                "selector": row.get("selector"),
+                "targetId": (row.get("selector") or "").replace('[data-r508="', "").replace('"]', "") or None,
+            })
         result = f.get("result", "needs_review")
         owner = f.get("owner", "human")
         notes = f.get("notes", "")
+        remedy = f.get("remedy")
         if result != "fail" and rows:
             polarity = rows[0]["polarity"]
             outcomes = [noul_outcome(r["noul"], polarity) for r in rows]
@@ -605,7 +840,12 @@ def combine(inv: Inventory, kind: str, source: dict, referee: Referee, jev_rows:
         if not f and not rows:
             result, owner, notes = "needs_review", "human", "No deterministic owner completed this SC."
             evidence = evidence or [{"source": "human", "snippet": "Not tested beyond inventory heuristics."}]
-        criteria.append(_crit(cid, name, level, result, owner, True, evidence, traces, notes))
+        if not remedy:
+            if result == "fail":
+                remedy = "Fix the highlighted markup, then re-rate. This is not a certification step."
+            elif result == "needs_review":
+                remedy = "Review the notes and the snapshot (or the live page). This SC is not closed from automated checks alone."
+        criteria.append(_crit(cid, name, level, result, owner, True, evidence, traces, notes, remedy))
 
     applicable = [c for c in criteria if c["applicable"]]
     counts = {
@@ -655,10 +895,11 @@ def combine(inv: Inventory, kind: str, source: dict, referee: Referee, jev_rows:
             "2.4.5, 3.2.3, and 3.2.4 need a set of pages.",
             "WCAG 2.2 is not part of this legal pack.",
         ],
+        **({"previewHtml": inv.html} if include_preview else {}),
     }
 
 
-def _crit(cid, name, level, result, owner, applicable, evidence, jev, notes):
+def _crit(cid, name, level, result, owner, applicable, evidence, jev, notes, remedy=None):
     return {
         "id": cid,
         "name": name,
@@ -670,24 +911,66 @@ def _crit(cid, name, level, result, owner, applicable, evidence, jev, notes):
         "jev": jev or None,
         "fpc": FPC.get(cid, []),
         "notes": notes,
+        "remedy": remedy,
         "tools": list({owner} | {e["source"] for e in evidence}),
     }
+
+
+def normalize_http_url(raw: str) -> str | None:
+    """Bare hosts (`example.gov/page`) are fetched. Existing files stay files."""
+    text = raw.strip()
+    if text.startswith("http://") or text.startswith("https://"):
+        return text
+    if not re.match(r"^(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:[/?#]|$)", text, re.I) and not re.match(
+        r"^localhost(?::\d+)?(?:[/?#]|$)", text, re.I
+    ):
+        return None
+    if Path(text).exists():
+        return None
+    return "https://" + text.lstrip("/")
+
+
+def _read_limited(resp) -> str:
+    return resp.read(2_000_000).decode("utf-8", "replace")
+
+
+def _url_request(url: str) -> urllib.request.Request:
+    return urllib.request.Request(url, headers={"User-Agent": "508-Draft-Rater/0.1"})
+
+
+def fetch_url(url: str) -> str:
+    try:
+        with urllib.request.urlopen(_url_request(url), timeout=20) as resp:
+            return _read_limited(resp)
+    except urllib.error.HTTPError:
+        raise
+    except urllib.error.URLError as exc:
+        reason = str(getattr(exc, "reason", exc))
+        if "Tunnel connection failed" not in reason and "proxy" not in reason.lower():
+            raise RuntimeError(f"Could not fetch {url}: {reason}") from exc
+        # An ambient dev proxy often rejects the page the user asked to rate.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            with opener.open(_url_request(url), timeout=20) as resp:
+                return _read_limited(resp)
+        except urllib.error.URLError as exc2:
+            reason2 = str(getattr(exc2, "reason", exc2))
+            raise RuntimeError(f"Could not fetch {url}: {reason2}") from exc2
 
 
 def load_input(raw: str, as_html: bool) -> tuple[str, dict, str | None]:
     if as_html or raw.lstrip().lower().startswith(("<!doctype", "<html", "<body")):
         return raw, {"kind": "html", "value": "(pasted HTML)"}, None
-    if raw.startswith("http://") or raw.startswith("https://"):
-        req = urllib.request.Request(raw, headers={"User-Agent": "508-Draft-Rater/0.1"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            html = resp.read(2_000_000).decode("utf-8", "replace")
-        return html, {"kind": "url", "value": raw}, raw
+    url = normalize_http_url(raw)
+    if url:
+        html = fetch_url(url)
+        return html, {"kind": "url", "value": url}, url
     path = Path(raw)
     html = path.read_text(encoding="utf-8")
     return html, {"kind": "file", "value": str(path)}, path.resolve().as_uri()
 
 
-def rate(raw: str, *, as_html: bool = False, kind: str = "web", skip_jev: bool = False) -> dict:
+def rate(raw: str, *, as_html: bool = False, kind: str = "web", skip_jev: bool = False, include_preview: bool = False) -> dict:
     html, source, url = load_input(raw, as_html)
     inv = parse_html(html, url)
     referee = create_referee()
@@ -698,7 +981,7 @@ def rate(raw: str, *, as_html: bool = False, kind: str = "web", skip_jev: bool =
             ans = res.get("answers", {}).get(job["questionId"], {})
             if "noul" in ans:
                 rows.append({**job, "noul": float(ans["noul"])})
-    return combine(inv, kind, source, referee, rows)
+    return combine(inv, kind, source, referee, rows, include_preview=include_preview)
 
 
 def main() -> None:
